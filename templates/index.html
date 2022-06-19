@@ -4,17 +4,26 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Index</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+    <title>Photoblog</title>
 </head>
 <body>
     <h1>Photoblog</h1>
 
-    {{if .Username}}
-    <a href="/photos">Photos</a>
-    <a href="/logout">Logout</a>
-    {{else}}
-    <a href="/login">Login</a>
-    <a href="/signup">SignUp</a>
-    {{end}}
+        {{if .Username}}
+            <div>
+                <a href="/photos">Photos</a>
+            </div>
+            <div>
+                <a href="/logout">Logout</a>
+            </div>
+        {{else}}
+            <div>
+                <a href="/login">Login</a>
+            </div>
+            <div>
+                <a href="/signup">SignUp</a>
+            </div>
+        {{end}}
 </body>
 </html>

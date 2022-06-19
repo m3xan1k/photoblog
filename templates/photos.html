@@ -4,21 +4,40 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
     <title>Photos</title>
 </head>
 <body>
     <h1>{{.User.Username}} photos</h1>
 
-    <a href="/logout">Logout</a>
-    <a href="/upload">Upload</a>
+    <div>
+        <a href="/logout">Logout</a>
+    </div>
+    <div>
+        <a href="/upload">Upload</a>
+    </div>
 
-    <ul>
-        {{range .Photos}}
-            <li>
-                <a href="/photo?id={{.Id}}">{{.FilenameFromPath}}</a>
-                <a href="/delete_photo?id={{.Id}}">Delete</a>
-            </li>
-        {{end}}
-    </ul>   
+    <table>
+        <thead>
+            <th>Filename</th>
+            <th>Description</th>
+            <th>Delete</th>
+        </thead>
+        <tbody>
+            {{range .Photos}}
+                <tr>
+                    <td>
+                        <a href="/photo?id={{.Id}}">{{.FilenameFromPath}}</a>
+                    </td>
+                    <td>
+                        {{.Description}}
+                    </td>
+                    <td>
+                        <a href="/delete_photo?id={{.Id}}">Delete</a>
+                    </td>
+                </tr>
+            {{end}}
+        </tbody>
+    </table> 
 </body>
 </html>

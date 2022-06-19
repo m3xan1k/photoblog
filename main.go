@@ -26,7 +26,7 @@ var db *sql.DB
 var err error
 
 func init() {
-	tpl = template.Must(template.ParseGlob("templates/*"))
+	tpl = template.Must(template.ParseGlob("templates/*.html"))
 	db, err = sql.Open("sqlite3", "db.sqlite3")
 	helpers.Check(err)
 }
