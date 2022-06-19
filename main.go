@@ -3,56 +3,39 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"html/template"
-	"log"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 
+	"github.com/m3xan1k/netservers/photoblog/helpers"
+	"github.com/m3xan1k/netservers/photoblog/models"
 	sqlite3 "github.com/mattn/go-sqlite3"
-	uuid "github.com/satori/go.uuid"
 	"golang.org/x/crypto/bcrypt"
+)
+
+const (
+	photosRoot = "photos"
 )
 
 var tpl *template.Template
 var db *sql.DB
 var err error
 
-type User struct {
-	Id           int64
-	Username     string
-	PasswordHash string
-}
-
 func init() {
 	tpl = template.Must(template.ParseGlob("templates/*"))
 	db, err = sql.Open("sqlite3", "db.sqlite3")
-	check(err)
-}
-
-func check(err error) {
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func getSessionCookie(req *http.Request) *http.Cookie {
-	var sessionCookie *http.Cookie
-	sessionCookie, err := req.Cookie("_session_id")
-
-	if errors.Is(err, http.ErrNoCookie) {
-		sessionId := uuid.NewV4().String()
-		sessionCookie = &http.Cookie{
-			Name:  "_session_id",
-			Value: sessionId,
-		}
-	}
-	return sessionCookie
+	helpers.Check(err)
 }
 
 func authenticated(c *http.Cookie) bool {
 	var count int
-	err := db.QueryRow("SELECT Count(*) FROM sessions WHERE session_id = ?", c.Value).Scan(&count)
-	check(err)
+	err := db.QueryRow(
+		"SELECT Count(*) FROM user_sessions WHERE session_id = ?", c.Value,
+	).Scan(&count)
+	helpers.Check(err)
 
 	return count == 1
 }
@@ -68,7 +51,7 @@ func index(res http.ResponseWriter, req *http.Request) {
 
 func signup(res http.ResponseWriter, req *http.Request) {
 
-	sessionCookie := getSessionCookie(req)
+	sessionCookie := helpers.GetSessionCookie(req)
 	http.SetCookie(res, sessionCookie)
 	if authenticated(sessionCookie) {
 		http.Redirect(res, req, "/", http.StatusSeeOther)
@@ -96,7 +79,7 @@ func signup(res http.ResponseWriter, req *http.Request) {
 
 		/* Generate password hash */
 		passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		check(err)
+		helpers.Check(err)
 
 		/* Save to db */
 		_, err = db.Exec("INSERT INTO users (username, password_hash) VALUES (?, ?)", username, string(passwordHash))
@@ -121,7 +104,7 @@ func signup(res http.ResponseWriter, req *http.Request) {
 
 func login(res http.ResponseWriter, req *http.Request) {
 
-	sessionCookie := getSessionCookie(req)
+	sessionCookie := helpers.GetSessionCookie(req)
 	http.SetCookie(res, sessionCookie)
 	if authenticated(sessionCookie) {
 		http.Redirect(res, req, "/", http.StatusSeeOther)
@@ -143,7 +126,7 @@ func login(res http.ResponseWriter, req *http.Request) {
 		}
 
 		/* Query user with corresponding username */
-		user := User{}
+		user := models.User{}
 		row := db.QueryRow("SELECT id,username,password_hash FROM users WHERE username = ?", username)
 		err = row.Scan(&user.Id, &user.Username, &user.PasswordHash)
 
@@ -162,11 +145,11 @@ func login(res http.ResponseWriter, req *http.Request) {
 
 		/* Success */
 		_, err := db.Exec(
-			"INSERT INTO sessions (session_id, user_id) VALUES (?, ?)",
+			"INSERT INTO user_sessions (session_id, user_id) VALUES (?, ?)",
 			sessionCookie.Value,
 			user.Id,
 		)
-		check(err)
+		helpers.Check(err)
 
 		http.Redirect(res, req, "/", http.StatusSeeOther)
 		return
@@ -176,10 +159,90 @@ func login(res http.ResponseWriter, req *http.Request) {
 	tpl.ExecuteTemplate(res, "login.html", nil)
 }
 
+func logout(res http.ResponseWriter, req *http.Request) {
+	sessionCookie := helpers.GetSessionCookie(req)
+
+	/* Remove user's session from DB */
+	db.Exec("DELETE FROM user_sessions WHERE session_id = ?", sessionCookie.Value)
+
+	/* Remove session cookie from client */
+	sessionCookie.MaxAge = -1
+	http.SetCookie(res, sessionCookie)
+
+	http.Redirect(res, req, "/", http.StatusSeeOther)
+}
+
+func upload(res http.ResponseWriter, req *http.Request) {
+	sessionCookie := helpers.GetSessionCookie(req)
+	http.SetCookie(res, sessionCookie)
+	if !authenticated(sessionCookie) {
+		http.Redirect(res, req, "/login", http.StatusSeeOther)
+		return
+	}
+
+	/* Get current user */
+	user := models.User{}
+	row := db.QueryRow(
+		`SELECT users.id,users.username
+		FROM user_sessions
+		LEFT JOIN users
+		ON user_sessions.user_id = users.id`,
+	)
+	err = row.Scan(&user.Id, &user.Username)
+	helpers.Check(err)
+
+	/* POST */
+	if req.Method == http.MethodPost {
+		/* Check or Create user's photo dir */
+		dirname := fmt.Sprintf("%s/%s", photosRoot, user.Username)
+		err = os.MkdirAll(dirname, 0755)
+		if !errors.Is(err, os.ErrExist) {
+			helpers.Check(err)
+		}
+
+		/* Get file stream from form */
+		iFile, fileHeader, err := req.FormFile("photo")
+		helpers.Check(err)
+		defer iFile.Close()
+
+		/* Create output file stream */
+		oFilePath := fmt.Sprintf(
+			"%s/%s",
+			dirname,
+			strings.Trim(fileHeader.Filename, " "),
+		)
+		oFile, err := os.OpenFile(oFilePath, os.O_WRONLY|os.O_CREATE, 0755)
+		helpers.Check(err)
+		defer iFile.Close()
+
+		/* Save file */
+		io.Copy(oFile, iFile)
+
+		/* Save to DB */
+		var sqliteErr sqlite3.Error
+		_, err = db.Exec(
+			"INSERT INTO user_photos (photo_path, user_id) VALUES (?, ?)", oFilePath, user.Id,
+		)
+		if errors.As(err, &sqliteErr) {
+			if errors.Is(sqliteErr.ExtendedCode, sqlite3.ErrConstraintUnique) {
+				renderError(res, "File already exists", "upload.html")
+				return
+			}
+		}
+		http.Redirect(res, req, "/", http.StatusSeeOther)
+		return
+	}
+
+	/* GET */
+	tpl.ExecuteTemplate(res, "upload.html", nil)
+}
+
 func main() {
 	http.HandleFunc("/", index)
 	http.HandleFunc("/signup", signup)
 	http.HandleFunc("/login", login)
+	http.HandleFunc("/logout", logout)
+	http.HandleFunc("/upload", upload)
 	http.Handle("/favicon.ico", http.NotFoundHandler())
 	http.ListenAndServe("localhost:8000", nil)
 }

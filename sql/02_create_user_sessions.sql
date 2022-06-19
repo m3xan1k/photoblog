@@ -1,4 +1,4 @@
-CREATE TABLE "sessions" (
+CREATE TABLE "user_sessions" (
 	"id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
 	"session_id"	TEXT NOT NULL UNIQUE,
 	"user_id"	INTEGER NOT NULL,
