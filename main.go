@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	photosRoot = "photos"
+	photosRoot = "static"
 )
 
 var tpl *template.Template
@@ -41,13 +41,36 @@ func authenticated(c *http.Cookie) bool {
 	return count == 1
 }
 
+func getCurrentUser(c *http.Cookie) models.User {
+	user := models.User{}
+	row := db.QueryRow(
+		`SELECT users.id,users.username
+		FROM user_sessions
+		INNER JOIN users
+		ON user_sessions.user_id = users.id
+		WHERE user_sessions.session_id = ?`,
+		c.Value,
+	)
+	err = row.Scan(&user.Id, &user.Username)
+	helpers.Check(err)
+	return user
+}
+
 func renderError(res http.ResponseWriter, msg string, tplName string) {
 	data := struct{ Msg string }{msg}
 	tpl.ExecuteTemplate(res, tplName, data)
 }
 
 func index(res http.ResponseWriter, req *http.Request) {
-	tpl.ExecuteTemplate(res, "index.html", nil)
+
+	sessionCookie := helpers.GetSessionCookie(req)
+	http.SetCookie(res, sessionCookie)
+
+	user := models.User{}
+	if authenticated(sessionCookie) {
+		user = getCurrentUser(sessionCookie)
+	}
+	tpl.ExecuteTemplate(res, "index.html", user)
 }
 
 func signup(res http.ResponseWriter, req *http.Request) {
@@ -182,15 +205,7 @@ func upload(res http.ResponseWriter, req *http.Request) {
 	}
 
 	/* Get current user */
-	user := models.User{}
-	row := db.QueryRow(
-		`SELECT users.id,users.username
-		FROM user_sessions
-		LEFT JOIN users
-		ON user_sessions.user_id = users.id`,
-	)
-	err = row.Scan(&user.Id, &user.Username)
-	helpers.Check(err)
+	user := getCurrentUser(sessionCookie)
 
 	/* POST */
 	if req.Method == http.MethodPost {
@@ -229,7 +244,8 @@ func upload(res http.ResponseWriter, req *http.Request) {
 				return
 			}
 		}
-		http.Redirect(res, req, "/", http.StatusSeeOther)
+
+		http.Redirect(res, req, "/photos", http.StatusSeeOther)
 		return
 	}
 
@@ -237,12 +253,106 @@ func upload(res http.ResponseWriter, req *http.Request) {
 	tpl.ExecuteTemplate(res, "upload.html", nil)
 }
 
+func photos(res http.ResponseWriter, req *http.Request) {
+	sessionCookie := helpers.GetSessionCookie(req)
+	http.SetCookie(res, sessionCookie)
+	if !authenticated(sessionCookie) {
+		http.Redirect(res, req, "/login", http.StatusSeeOther)
+		return
+	}
+
+	/* Get current user */
+	user := getCurrentUser(sessionCookie)
+
+	/* Query user's photos */
+	rows, err := db.Query(
+		`SELECT user_photos.id,user_photos.photo_path
+		FROM user_photos
+		INNER JOIN users
+		ON user_photos.user_id = users.id
+		WHERE users.id = ?`,
+		user.Id,
+	)
+	if !errors.Is(err, sql.ErrNoRows) {
+		helpers.Check(err)
+	}
+
+	/* Append photos to struct field */
+	uPhotos := models.UserPhotos{User: user}
+	for rows.Next() {
+		photo := models.Photo{}
+		err = rows.Scan(&photo.Id, &photo.Path)
+		helpers.Check(err)
+
+		uPhotos.Photos = append(uPhotos.Photos, photo)
+	}
+
+	tpl.ExecuteTemplate(res, "photos.html", uPhotos)
+}
+
+func photo(res http.ResponseWriter, req *http.Request) {
+	sessionCookie := helpers.GetSessionCookie(req)
+	http.SetCookie(res, sessionCookie)
+	if !authenticated(sessionCookie) {
+		http.Redirect(res, req, "/login", http.StatusSeeOther)
+		return
+	}
+
+	/* Get current user */
+	user := getCurrentUser(sessionCookie)
+
+	photoId := req.FormValue("id")
+
+	/* Query photo */
+	var photoPath string
+	var photoUserId int
+	row := db.QueryRow(
+		"SELECT photo_path,user_id FROM user_photos WHERE id = ?",
+		photoId,
+	)
+	err = row.Scan(&photoPath, &photoUserId)
+	if !errors.Is(err, sql.ErrNoRows) {
+		helpers.Check(err)
+	}
+
+	// TODO: private and public photos
+	/* Check photo owner */
+	if user.Id != photoUserId {
+		http.Redirect(res, req, "/", http.StatusSeeOther)
+	}
+
+	tpl.ExecuteTemplate(res, "photo.html", photoPath)
+}
+
+func deletePhoto(res http.ResponseWriter, req *http.Request) {
+	sessionCookie := helpers.GetSessionCookie(req)
+	http.SetCookie(res, sessionCookie)
+	if !authenticated(sessionCookie) {
+		http.Redirect(res, req, "/login", http.StatusSeeOther)
+		return
+	}
+
+	/* Get current user */
+	user := getCurrentUser(sessionCookie)
+
+	photoId := req.FormValue("id")
+
+	/* Delete record that matches both id and user_id */
+	db.Exec("DELETE FROM user_photos WHERE user_id = ? AND id = ?", user.Id, photoId)
+	http.Redirect(res, req, "/photos", http.StatusSeeOther)
+}
+
 func main() {
+	fs := http.FileServer(http.Dir(photosRoot))
+	http.Handle("/static/", http.StripPrefix("/static", fs))
 	http.HandleFunc("/", index)
 	http.HandleFunc("/signup", signup)
 	http.HandleFunc("/login", login)
 	http.HandleFunc("/logout", logout)
 	http.HandleFunc("/upload", upload)
+	http.HandleFunc("/photos", photos)
+	http.HandleFunc("/photo", photo)
+	http.HandleFunc("/delete_photo", deletePhoto)
 	http.Handle("/favicon.ico", http.NotFoundHandler())
 	http.ListenAndServe("localhost:8000", nil)
 }

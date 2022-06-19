@@ -4,17 +4,12 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Index</title>
+    <title>Photo</title>
 </head>
 <body>
-    <h1>Photoblog</h1>
-
-    {{if .Username}}
+    <h1>Photo</h1>
     <a href="/photos">Photos</a>
     <a href="/logout">Logout</a>
-    {{else}}
-    <a href="/login">Login</a>
-    <a href="/signup">SignUp</a>
-    {{end}}
+    <img src="{{.}}">
 </body>
 </html>
