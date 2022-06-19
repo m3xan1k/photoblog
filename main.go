@@ -3,11 +3,12 @@ package main
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"html/template"
 	"io"
 	"net/http"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/m3xan1k/netservers/photoblog/helpers"
@@ -194,7 +195,7 @@ func upload(res http.ResponseWriter, req *http.Request) {
 	/* POST */
 	if req.Method == http.MethodPost {
 		/* Check or Create user's photo dir */
-		dirname := fmt.Sprintf("%s/%s", photosRoot, user.Username)
+		dirname := path.Join(photosRoot, user.Username)
 		err = os.MkdirAll(dirname, 0755)
 		if !errors.Is(err, os.ErrExist) {
 			helpers.Check(err)
@@ -206,8 +207,7 @@ func upload(res http.ResponseWriter, req *http.Request) {
 		defer iFile.Close()
 
 		/* Create output file stream */
-		oFilePath := fmt.Sprintf(
-			"%s/%s",
+		oFilePath := filepath.Join(
 			dirname,
 			strings.Trim(fileHeader.Filename, " "),
 		)
