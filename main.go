@@ -233,10 +233,16 @@ func upload(res http.ResponseWriter, req *http.Request) {
 		/* Save file */
 		io.Copy(oFile, iFile)
 
+		/* Photo description */
+		photoDescription := req.FormValue("description")
+
 		/* Save to DB */
 		var sqliteErr sqlite3.Error
 		_, err = db.Exec(
-			"INSERT INTO user_photos (photo_path, user_id) VALUES (?, ?)", oFilePath, user.Id,
+			"INSERT INTO user_photos (photo_path, description, user_id) VALUES (?, ?, ?)",
+			oFilePath,
+			photoDescription,
+			user.Id,
 		)
 		if errors.As(err, &sqliteErr) {
 			if errors.Is(sqliteErr.ExtendedCode, sqlite3.ErrConstraintUnique) {
@@ -266,10 +272,10 @@ func photos(res http.ResponseWriter, req *http.Request) {
 
 	/* Query user's photos */
 	rows, err := db.Query(
-		`SELECT user_photos.id,user_photos.photo_path
-		FROM user_photos
+		`SELECT up.id,up.photo_path,up.description
+		FROM user_photos as up
 		INNER JOIN users
-		ON user_photos.user_id = users.id
+		ON up.user_id = users.id
 		WHERE users.id = ?`,
 		user.Id,
 	)
@@ -281,7 +287,7 @@ func photos(res http.ResponseWriter, req *http.Request) {
 	uPhotos := models.UserPhotos{User: user}
 	for rows.Next() {
 		photo := models.Photo{}
-		err = rows.Scan(&photo.Id, &photo.Path)
+		err = rows.Scan(&photo.Id, &photo.Path, &photo.Description)
 		helpers.Check(err)
 
 		uPhotos.Photos = append(uPhotos.Photos, photo)
@@ -304,13 +310,13 @@ func photo(res http.ResponseWriter, req *http.Request) {
 	photoId := req.FormValue("id")
 
 	/* Query photo */
-	var photoPath string
 	var photoUserId int
+	photo := models.Photo{}
 	row := db.QueryRow(
-		"SELECT photo_path,user_id FROM user_photos WHERE id = ?",
+		"SELECT id,photo_path,description,user_id FROM user_photos WHERE id = ?",
 		photoId,
 	)
-	err = row.Scan(&photoPath, &photoUserId)
+	err = row.Scan(&photo.Id, &photo.Path, &photo.Description, &photoUserId)
 	if !errors.Is(err, sql.ErrNoRows) {
 		helpers.Check(err)
 	}
@@ -321,7 +327,7 @@ func photo(res http.ResponseWriter, req *http.Request) {
 		http.Redirect(res, req, "/", http.StatusSeeOther)
 	}
 
-	tpl.ExecuteTemplate(res, "photo.html", photoPath)
+	tpl.ExecuteTemplate(res, "photo.html", photo)
 }
 
 func deletePhoto(res http.ResponseWriter, req *http.Request) {

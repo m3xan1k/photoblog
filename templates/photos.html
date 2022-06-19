@@ -15,8 +15,8 @@
     <ul>
         {{range .Photos}}
             <li>
-                <a href="/photo?id={{.Id}}">{{.Path}}</a>
-                <a href="/delete_photo?id={{.Id}}">delete</a>
+                <a href="/photo?id={{.Id}}">{{.FilenameFromPath}}</a>
+                <a href="/delete_photo?id={{.Id}}">Delete</a>
             </li>
         {{end}}
     </ul>   
